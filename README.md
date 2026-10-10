@@ -45,15 +45,32 @@ importer currently accepts `uiVersion >= 1001`.
 
 ## Version support
 
-- **uiVersion 1001** (Marvelous Designer 2024/2025 exports): verified.
-- **uiVersion 1001** (Marvelous Designer 2026 export): the container layout,
-  the panel payload and the sewing payload are unchanged, but
-  `mapPatternList.listPattern` may now also contain non-2D entries - button
-  heads (`enPatternType == 2`, `uiPatternType == 3`) - which carry no
-  `mapShape2D`. The current importer walks every entry of `listPattern` and
-  therefore fails with `KeyError: 'mapShape2D'` on such a project. Skip
-  entries without `mapShape2D` (and keep the `listPattern` index ->
-  created-pattern index mapping) to import them.
+The outer container, the panel payload and the sewing payload are byte-for-byte
+the same shape across the versions checked so far; only the entries inside
+`listPattern` and the meaning of a few sewing fields changed. Verified in
+Blender 4.5.6 (which ships NumPy 1.26.4):
+
+- **uiVersion 1001, Marvelous Designer 2024/2025 export**: parses and imports.
+- **uiVersion 1001, Marvelous Designer 2026 export**: fails, for three
+  independent reasons:
+  1. `np.bool` no longer exists (NumPy removed it in 1.24), so every sewing
+     read raises `AttributeError: module 'numpy' has no attribute 'bool'`.
+     This one is not version specific - it breaks older exports too. Use
+     `np.bool_`.
+  2. `listPattern` also holds non-2D entries - button heads, with
+     `enPatternType == 2` / `uiPatternType == 3` - which carry neither
+     `fEdgeLength` nor `mapShape2D`, so the pattern loop raises
+     `KeyError: 'fEdgeLength'`. Skip the entries without `mapShape2D`, and map
+     the `listPattern` index to the created-pattern index so the sewing payload
+     still resolves.
+  3. Sewings that run along an internal line carry `uiDepth == 2` and a
+     `uiShapeIndex`. The importer ignores both and reads `uiStartIndex` /
+     `uiEndIndex` as outline edge indices, so those seams land on the outline
+     and collide with the real ones: `calc_all_sewings_sections()` raises
+     `Sewing overlap!!!`. Reading them properly needs the `uiShapeIndex` ->
+     internal line mapping; skipping them imports the project but drops those
+     seams. Note that older exports use `uiDepth == 2` too - it is a latent
+     mis-read there, not a new field.
 - **uiVersion < 1001** (for example Marvelous Designer 2020, uiVersion 1000):
   rejected with `Marvelous designer version N not supported!`.
 
